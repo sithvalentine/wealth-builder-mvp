@@ -1,0 +1,369 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER MANAGEMENT
+// ============================================
+
+enum UserRole {
+  Student
+  Teacher
+  Facilitator
+  Admin
+}
+
+model User {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  passwordHash      String
+  role              UserRole
+  firstName         String
+  lastName          String
+  createdAt         DateTime  @default(now())
+  lastLoginAt       DateTime?
+
+  enrollments       Enrollment[]
+  classesInstructed ClassGroup[]
+
+  @@index([email])
+  @@index([role])
+}
+
+// ============================================
+// COURSE STRUCTURE
+// ============================================
+
+enum ContextType {
+  Academic
+  YouthProgram
+}
+
+model Context {
+  id          String      @id @default(uuid())
+  name        ContextType @unique
+  description String
+
+  classGroups ClassGroup[]
+}
+
+model Course {
+  id                  String   @id @default(uuid())
+  courseNumber        Int      @unique
+  title               String
+  description         String
+  durationWeeks       Int
+  targetAgeMin        Int
+  targetAgeMax        Int
+  isActive            Boolean  @default(true)
+
+  units               Unit[]
+  classGroups         ClassGroup[]
+  projects            Project[]
+
+  @@index([courseNumber])
+}
+
+model Unit {
+  id                 String   @id @default(uuid())
+  courseId           String
+  unitNumber         Int
+  title              String
+  description        String
+  weekStart          Int
+  weekEnd            Int
+  learningObjectives Json
+  isCore             Boolean  @default(true)
+
+  course             Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  weeks              Week[]
+
+  @@unique([courseId, unitNumber])
+  @@index([courseId])
+}
+
+model Week {
+  id         String   @id @default(uuid())
+  unitId     String
+  weekNumber Int
+  title      String
+  overview   String
+
+  unit       Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  lessons    Lesson[]
+
+  @@unique([unitId, weekNumber])
+  @@index([unitId])
+}
+
+model Lesson {
+  id                String   @id @default(uuid())
+  weekId            String
+  dayNumber         Int
+  title             String
+  learningObjectives Json
+  contentBlocks     Json
+  materials         Json
+  homework          String?
+  estimatedDuration Int
+  sortOrder         Int
+
+  week              Week     @relation(fields: [weekId], references: [id], onDelete: Cascade)
+  quizzes           Quiz[]
+  completions       LessonCompletion[]
+
+  @@unique([weekId, dayNumber])
+  @@index([weekId])
+}
+
+// ============================================
+// CLASS MANAGEMENT
+// ============================================
+
+model ClassGroup {
+  id                String    @id @default(uuid())
+  name              String
+  courseId          String
+  contextId         String
+  instructorId      String
+  schoolYear        String
+  startDate         DateTime
+  endDate           DateTime
+  meetingSchedule   Json
+  gradingWeights    Json
+  isCondensed       Boolean   @default(false)
+  enrollmentCode    String    @unique @default(cuid())
+  createdAt         DateTime  @default(now())
+
+  course            Course    @relation(fields: [courseId], references: [id])
+  context           Context   @relation(fields: [contextId], references: [id])
+  instructor        User      @relation(fields: [instructorId], references: [id])
+
+  enrollments       Enrollment[]
+
+  @@index([instructorId])
+  @@index([courseId])
+}
+
+enum EnrollmentStatus {
+  Active
+  Completed
+  Dropped
+}
+
+model Enrollment {
+  id              String           @id @default(uuid())
+  studentId       String
+  classGroupId    String
+  enrolledAt      DateTime         @default(now())
+  status          EnrollmentStatus @default(Active)
+  finalGrade      Decimal?         @db.Decimal(5, 2)
+  completionDate  DateTime?
+
+  student         User             @relation(fields: [studentId], references: [id])
+  classGroup      ClassGroup       @relation(fields: [classGroupId], references: [id], onDelete: Cascade)
+
+  lessonCompletions   LessonCompletion[]
+  quizAttempts        QuizAttempt[]
+  projectSubmissions  ProjectSubmission[]
+  grades              Grade[]
+  budgetEntries       BudgetEntry[]
+  wealthTrackerEntries WealthTrackerEntry[]
+
+  @@unique([studentId, classGroupId])
+  @@index([studentId])
+  @@index([classGroupId])
+}
+
+// ============================================
+// ASSESSMENTS
+// ============================================
+
+model Quiz {
+  id              String   @id @default(uuid())
+  lessonId        String
+  title           String
+  instructions    String
+  timeLimit       Int?
+  passingScore    Int
+  allowedAttempts Int      @default(3)
+  isRequired      Boolean  @default(true)
+  questions       Json
+
+  lesson          Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  attempts        QuizAttempt[]
+
+  @@index([lessonId])
+}
+
+enum ProjectType {
+  BudgetChallenge
+  PortfolioSimulation
+  Other
+}
+
+model Project {
+  id          String      @id @default(uuid())
+  courseId    String
+  title       String
+  description String
+  type        ProjectType
+  rubric      Json
+  startWeek   Int
+  dueWeek     Int
+  totalPoints Int
+  isCapstone  Boolean     @default(false)
+
+  course      Course      @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  submissions ProjectSubmission[]
+
+  @@index([courseId])
+}
+
+// ============================================
+// STUDENT PROGRESS
+// ============================================
+
+enum CompletionStatus {
+  NotStarted
+  InProgress
+  Completed
+}
+
+model LessonCompletion {
+  id           String           @id @default(uuid())
+  enrollmentId String
+  lessonId     String
+  startedAt    DateTime         @default(now())
+  completedAt  DateTime?
+  timeSpent    Int              @default(0)
+  status       CompletionStatus @default(InProgress)
+
+  enrollment   Enrollment       @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  lesson       Lesson           @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([enrollmentId, lessonId])
+  @@index([enrollmentId])
+}
+
+model QuizAttempt {
+  id            String    @id @default(uuid())
+  enrollmentId  String
+  quizId        String
+  attemptNumber Int
+  startedAt     DateTime  @default(now())
+  submittedAt   DateTime?
+  score         Decimal?  @db.Decimal(5, 2)
+  responses     Json
+  timeSpent     Int       @default(0)
+
+  enrollment    Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  quiz          Quiz       @relation(fields: [quizId], references: [id], onDelete: Cascade)
+
+  @@unique([enrollmentId, quizId, attemptNumber])
+  @@index([enrollmentId])
+}
+
+enum SubmissionStatus {
+  NotStarted
+  InProgress
+  Submitted
+  Graded
+}
+
+model ProjectSubmission {
+  id            String           @id @default(uuid())
+  enrollmentId  String
+  projectId     String
+  submittedAt   DateTime?
+  status        SubmissionStatus @default(NotStarted)
+  artifacts     Json
+  rubricScores  Json?
+  totalScore    Int?
+  instructorFeedback String?
+  gradedAt      DateTime?
+
+  enrollment    Enrollment       @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  project       Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([enrollmentId, projectId])
+  @@index([enrollmentId])
+}
+
+// ============================================
+// GRADING
+// ============================================
+
+enum GradeCategory {
+  Projects
+  Quizzes
+  Participation
+  RealWorld
+}
+
+enum GradeItemType {
+  Quiz
+  Exam
+  Project
+  Participation
+  Other
+}
+
+model Grade {
+  id              String        @id @default(uuid())
+  enrollmentId    String
+  category        GradeCategory
+  itemType        GradeItemType
+  itemId          String
+  pointsEarned    Decimal       @db.Decimal(8, 2)
+  pointsPossible  Decimal       @db.Decimal(8, 2)
+  percentage      Decimal       @db.Decimal(5, 2)
+  recordedAt      DateTime      @default(now())
+
+  enrollment      Enrollment    @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  @@index([enrollmentId])
+  @@index([category])
+}
+
+// ============================================
+// TOOLS
+// ============================================
+
+model BudgetEntry {
+  id                  String   @id @default(uuid())
+  enrollmentId        String
+  month               DateTime @db.Date
+  income              Decimal  @db.Decimal(10, 2)
+  needs               Decimal  @db.Decimal(10, 2)
+  wants               Decimal  @db.Decimal(10, 2)
+  savingsInvestments  Decimal  @db.Decimal(10, 2)
+  notes               String?
+  createdAt           DateTime @default(now())
+
+  enrollment          Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  @@index([enrollmentId])
+  @@index([month])
+}
+
+model WealthTrackerEntry {
+  id           String   @id @default(uuid())
+  enrollmentId String
+  recordDate   DateTime @db.Date
+  assets       Json
+  liabilities  Json
+  netWorth     Decimal  @db.Decimal(12, 2)
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  enrollment   Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  @@index([enrollmentId])
+  @@index([recordDate])
+}
