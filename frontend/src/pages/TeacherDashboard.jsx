@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { dashboardAPI } from '../services/api';
 
 export default function TeacherDashboard() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -56,6 +58,13 @@ export default function TeacherDashboard() {
 
       {/* Main Content */}
       <div style={styles.content}>
+        {/* Quick Actions */}
+        <div style={styles.actionsBar}>
+          <button onClick={() => navigate('/classes')} style={styles.actionButton}>
+            Manage Classes
+          </button>
+        </div>
+
         {/* Summary Stats */}
         <div style={styles.statsGrid}>
           <div style={styles.statCard}>
@@ -383,5 +392,18 @@ const styles = {
     minHeight: '100vh',
     fontSize: '18px',
     color: '#ef4444',
+  },
+  actionsBar: {
+    marginBottom: '24px',
+  },
+  actionButton: {
+    padding: '12px 24px',
+    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+    color: 'white',
+    border: 'none',
+    borderRadius: '8px',
+    fontSize: '16px',
+    fontWeight: '600',
+    cursor: 'pointer',
   },
 };

@@ -88,4 +88,12 @@ export const wealthAPI = {
   getAnalytics: () => api.get('/wealth-tracker/analytics/growth'),
 };
 
+// Quiz API
+export const quizAPI = {
+  getById: (id) => api.get(`/quizzes/${id}`),
+  start: (id, classGroupId) => api.post(`/quizzes/${id}/start`, { classGroupId }),
+  submit: (id, attemptId, answers, classGroupId) => api.post(`/quizzes/${id}/submit`, { attemptId, answers, classGroupId }),
+  getAttempt: (attemptId) => api.get(`/quizzes/attempt/${attemptId}`),
+};
+
 export default api;

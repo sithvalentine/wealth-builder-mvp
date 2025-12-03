@@ -4,6 +4,10 @@ import Login from './pages/Login';
 import StudentDashboard from './pages/StudentDashboard';
 import TeacherDashboard from './pages/TeacherDashboard';
 import LessonsView from './pages/LessonsView';
+import BudgetCalculator from './pages/BudgetCalculator';
+import WealthTracker from './pages/WealthTracker';
+import Quiz from './pages/Quiz';
+import ClassManagement from './pages/ClassManagement';
 
 // Protected Route Component
 function ProtectedRoute({ children }) {
@@ -50,6 +54,38 @@ function App() {
             element={
               <ProtectedRoute>
                 <LessonsView />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/budget"
+            element={
+              <ProtectedRoute>
+                <BudgetCalculator />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/wealth-tracker"
+            element={
+              <ProtectedRoute>
+                <WealthTracker />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/quiz/:lessonId"
+            element={
+              <ProtectedRoute>
+                <Quiz />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/classes"
+            element={
+              <ProtectedRoute>
+                <ClassManagement />
               </ProtectedRoute>
             }
           />

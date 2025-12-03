@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { dashboardAPI } from '../services/api';
 
 export default function StudentDashboard() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -55,6 +57,41 @@ export default function StudentDashboard() {
 
       {/* Main Content */}
       <div style={styles.content}>
+        {/* Quick Actions */}
+        <section style={styles.section}>
+          <h2 style={styles.sectionTitle}>Quick Actions</h2>
+          <div style={styles.actionsGrid}>
+            <button onClick={() => navigate('/budget')} style={styles.actionCard}>
+              <div style={{...styles.actionIcon, background: '#d1fae5'}}>
+                <span style={{fontSize: '32px'}}>💰</span>
+              </div>
+              <h3 style={styles.actionTitle}>Budget Calculator</h3>
+              <p style={styles.actionDesc}>Plan your budget using the 50/30/20 rule</p>
+            </button>
+
+            <button onClick={() => navigate('/wealth-tracker')} style={styles.actionCard}>
+              <div style={{...styles.actionIcon, background: '#ddd6fe'}}>
+                <span style={{fontSize: '32px'}}>📊</span>
+              </div>
+              <h3 style={styles.actionTitle}>Wealth Tracker</h3>
+              <p style={styles.actionDesc}>Track your net worth over time</p>
+            </button>
+
+            {dashboardData?.classes && dashboardData.classes.length > 0 && (
+              <button
+                onClick={() => navigate(`/lessons/${dashboardData.classes[0].classId}`)}
+                style={styles.actionCard}
+              >
+                <div style={{...styles.actionIcon, background: '#fef3c7'}}>
+                  <span style={{fontSize: '32px'}}>📚</span>
+                </div>
+                <h3 style={styles.actionTitle}>View Lessons</h3>
+                <p style={styles.actionDesc}>Access your course lessons and materials</p>
+              </button>
+            )}
+          </div>
+        </section>
+
         {/* Classes Section */}
         <section style={styles.section}>
           <h2 style={styles.sectionTitle}>My Classes</h2>
@@ -389,5 +426,43 @@ const styles = {
     minHeight: '100vh',
     fontSize: '18px',
     color: '#ef4444',
+  },
+  actionsGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+    gap: '20px',
+  },
+  actionCard: {
+    background: 'white',
+    border: '2px solid #e5e7eb',
+    borderRadius: '12px',
+    padding: '24px',
+    textAlign: 'center',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+  },
+  actionIcon: {
+    width: '80px',
+    height: '80px',
+    borderRadius: '50%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: '16px',
+  },
+  actionTitle: {
+    margin: '0 0 8px 0',
+    fontSize: '18px',
+    color: '#111',
+    fontWeight: '600',
+  },
+  actionDesc: {
+    margin: 0,
+    fontSize: '14px',
+    color: '#666',
+    lineHeight: '1.4',
   },
 };
