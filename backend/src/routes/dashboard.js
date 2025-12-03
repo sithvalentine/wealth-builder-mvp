@@ -18,130 +18,87 @@ router.get('/student', authenticateToken, async (req, res) => {
       include: {
         classGroup: {
           include: {
-            course: {
-              include: {
-                units: {
-                  orderBy: { unitNumber: 'asc' },
-                  include: {
-                    weeks: {
-                      orderBy: { weekNumber: 'asc' }
-                    }
-                  }
-                }
-              }
-            },
+            course: true,
             instructor: {
               select: { firstName: true, lastName: true, email: true }
             }
           }
         },
         grades: {
-          include: {
-            lesson: true,
-            quiz: true,
-            project: true
-          }
+          orderBy: { recordedAt: 'desc' }
         }
       }
     });
 
     // Calculate progress for each enrollment
-    const classProgress = await Promise.all(
-      enrollments.map(async (enrollment) => {
-        const course = enrollment.classGroup.course;
+    const classProgress = enrollments.map((enrollment) => {
+      // Calculate grade breakdown by category
+      const gradesByCategory = {
+        Projects: { earned: 0, possible: 0 },
+        Quizzes: { earned: 0, possible: 0 },
+        Participation: { earned: 0, possible: 0 },
+        RealWorld: { earned: 0, possible: 0 }
+      };
 
-        // Get all lessons in the course
-        const totalLessons = await prisma.lesson.count({
-          where: {
-            week: {
-              unit: {
-                courseId: course.id
-              }
-            }
-          }
-        });
+      enrollment.grades.forEach(grade => {
+        if (gradesByCategory[grade.category]) {
+          gradesByCategory[grade.category].earned += parseFloat(grade.pointsEarned);
+          gradesByCategory[grade.category].possible += parseFloat(grade.pointsPossible);
+        }
+      });
 
-        // Get completed lessons
-        const completedLessons = await prisma.lessonCompletion.count({
-          where: {
-            studentId: req.user.id,
-            lesson: {
-              week: {
-                unit: {
-                  courseId: course.id
-                }
-              }
-            },
-            status: 'Completed'
-          }
-        });
+      // Calculate weighted grade
+      const weights = enrollment.classGroup.gradingWeights || {
+        projects: 40,
+        quizzes: 30,
+        participation: 20,
+        realWorld: 10
+      };
 
-        // Calculate grade breakdown by category
-        const gradesByCategory = {
-          Projects: { earned: 0, possible: 0 },
-          Quiz: { earned: 0, possible: 0 },
-          Participation: { earned: 0, possible: 0 },
-          RealWorld: { earned: 0, possible: 0 }
-        };
+      let weightedGrade = 0;
+      let totalWeight = 0;
 
-        enrollment.grades.forEach(grade => {
-          if (gradesByCategory[grade.category]) {
-            gradesByCategory[grade.category].earned += grade.earnedPoints;
-            gradesByCategory[grade.category].possible += grade.possiblePoints;
-          }
-        });
+      const categoryMapping = {
+        Projects: weights.projects,
+        Quizzes: weights.quizzes,
+        Participation: weights.participation,
+        RealWorld: weights.realWorld
+      };
 
-        // Calculate weighted grade
-        const weights = enrollment.classGroup.gradingWeights || {
-          projects: 40,
-          quizzes: 30,
-          participation: 20,
-          realWorld: 10
-        };
+      Object.entries(gradesByCategory).forEach(([category, scores]) => {
+        if (scores.possible > 0) {
+          const categoryPercent = (scores.earned / scores.possible) * 100;
+          const weight = categoryMapping[category];
+          weightedGrade += (categoryPercent * weight) / 100;
+          totalWeight += weight;
+        }
+      });
 
-        let weightedGrade = 0;
-        let totalWeight = 0;
+      const currentGrade = totalWeight > 0 ? (weightedGrade / totalWeight) * 100 : 0;
 
-        const categoryMapping = {
-          Projects: weights.projects,
-          Quiz: weights.quizzes,
-          Participation: weights.participation,
-          RealWorld: weights.realWorld
-        };
-
-        Object.entries(gradesByCategory).forEach(([category, scores]) => {
-          if (scores.possible > 0) {
-            const categoryPercent = (scores.earned / scores.possible) * 100;
-            const weight = categoryMapping[category];
-            weightedGrade += (categoryPercent * weight) / 100;
-            totalWeight += weight;
-          }
-        });
-
-        const currentGrade = totalWeight > 0 ? (weightedGrade / totalWeight) * 100 : 0;
-
-        return {
-          classId: enrollment.classGroup.id,
-          className: enrollment.classGroup.name,
-          courseName: course.name,
-          instructor: enrollment.classGroup.instructor,
-          currentGrade: currentGrade.toFixed(2),
-          letterGrade: calculateLetterGrade(currentGrade),
-          progressPercentage: totalLessons > 0 ? (completedLessons / totalLessons) * 100 : 0,
-          completedLessons,
-          totalLessons,
-          gradesByCategory,
-          recentActivity: enrollment.grades
-            .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-            .slice(0, 5)
-        };
-      })
-    );
+      return {
+        classId: enrollment.classGroup.id,
+        className: enrollment.classGroup.name,
+        courseName: enrollment.classGroup.course.name,
+        instructor: enrollment.classGroup.instructor,
+        currentGrade: currentGrade.toFixed(2),
+        letterGrade: calculateLetterGrade(currentGrade),
+        gradesByCategory,
+        recentActivity: enrollment.grades.slice(0, 5).map(g => ({
+          category: g.category,
+          itemType: g.itemType,
+          earnedPoints: parseFloat(g.pointsEarned),
+          possiblePoints: parseFloat(g.pointsPossible),
+          percentage: parseFloat(g.percentage),
+          recordedAt: g.recordedAt
+        }))
+      };
+    });
 
     // Get recent quiz attempts
     const recentQuizzes = await prisma.quizAttempt.findMany({
       where: {
-        studentId: req.user.id,
+        enrollmentId: { in: enrollments.map(e => e.id) },
         submittedAt: { not: null }
       },
       include: {
@@ -156,10 +113,9 @@ router.get('/student', authenticateToken, async (req, res) => {
     // Get wealth tracker summary
     const latestWealth = await prisma.wealthTrackerEntry.findFirst({
       where: {
-        studentId: req.user.id,
-        isHypothetical: false
+        enrollmentId: { in: enrollments.map(e => e.id) }
       },
-      orderBy: { date: 'desc' }
+      orderBy: { recordDate: 'desc' }
     });
 
     res.json({
@@ -171,16 +127,14 @@ router.get('/student', authenticateToken, async (req, res) => {
       classes: classProgress,
       recentQuizzes: recentQuizzes.map(q => ({
         quizTitle: q.quiz.title,
-        score: q.score,
-        earnedPoints: q.earnedPoints,
-        possiblePoints: q.possiblePoints,
+        score: q.score ? parseFloat(q.score) : 0,
         submittedAt: q.submittedAt
       })),
       wealthTracker: latestWealth ? {
         netWorth: latestWealth.netWorth,
-        totalAssets: latestWealth.totalAssets,
-        totalLiabilities: latestWealth.totalLiabilities,
-        lastUpdated: latestWealth.date
+        // totalAssets in JSON
+        // totalLiabilities in JSON
+        lastUpdated: latestWealth.recordDate
       } : null
     });
   } catch (error) {
@@ -222,15 +176,15 @@ router.get('/teacher', authenticateToken, async (req, res) => {
       const studentGrades = students.map(enrollment => {
         const gradesByCategory = {
           Projects: { earned: 0, possible: 0 },
-          Quiz: { earned: 0, possible: 0 },
+          Quizzes: { earned: 0, possible: 0 },
           Participation: { earned: 0, possible: 0 },
           RealWorld: { earned: 0, possible: 0 }
         };
 
         enrollment.grades.forEach(grade => {
           if (gradesByCategory[grade.category]) {
-            gradesByCategory[grade.category].earned += grade.earnedPoints;
-            gradesByCategory[grade.category].possible += grade.possiblePoints;
+            gradesByCategory[grade.category].earned += parseFloat(grade.pointsEarned);
+            gradesByCategory[grade.category].possible += parseFloat(grade.pointsPossible);
           }
         });
 
@@ -246,7 +200,7 @@ router.get('/teacher', authenticateToken, async (req, res) => {
 
         const categoryMapping = {
           Projects: weights.projects,
-          Quiz: weights.quizzes,
+          Quizzes: weights.quizzes,
           Participation: weights.participation,
           RealWorld: weights.realWorld
         };
@@ -271,7 +225,7 @@ router.get('/teacher', authenticateToken, async (req, res) => {
         classId: classGroup.id,
         className: classGroup.name,
         courseName: classGroup.course.name,
-        contextType: classGroup.context.type,
+        contextType: classGroup.context.name,
         studentCount: students.length,
         averageGrade: averageGrade.toFixed(2),
         startDate: classGroup.startDate,
@@ -299,18 +253,9 @@ router.get('/teacher', authenticateToken, async (req, res) => {
               select: { name: true }
             }
           }
-        },
-        lesson: {
-          select: { title: true }
-        },
-        quiz: {
-          select: { title: true }
-        },
-        project: {
-          select: { title: true }
         }
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { recordedAt: 'desc' },
       take: 20
     });
 
@@ -327,141 +272,16 @@ router.get('/teacher', authenticateToken, async (req, res) => {
         studentName: `${grade.enrollment.student.firstName} ${grade.enrollment.student.lastName}`,
         className: grade.enrollment.classGroup.name,
         category: grade.category,
-        itemTitle: grade.lesson?.title || grade.quiz?.title || grade.project?.title,
-        earnedPoints: grade.earnedPoints,
-        possiblePoints: grade.possiblePoints,
-        percentage: grade.possiblePoints > 0 ? (grade.earnedPoints / grade.possiblePoints) * 100 : 0,
-        submittedAt: grade.createdAt
+        itemTitle: `${grade.itemType} Assessment`,
+        earnedPoints: parseFloat(grade.pointsEarned),
+        possiblePoints: parseFloat(grade.pointsPossible),
+        percentage: parseFloat(grade.percentage),
+        submittedAt: grade.recordedAt
       }))
     });
   } catch (error) {
     console.error('Error fetching teacher dashboard:', error);
     res.status(500).json({ error: 'Failed to fetch dashboard data' });
-  }
-});
-
-// Get gradebook for specific class
-router.get('/gradebook/:classId', authenticateToken, async (req, res) => {
-  try {
-    const { classId } = req.params;
-
-    // Verify teacher owns this class
-    const classGroup = await prisma.classGroup.findUnique({
-      where: { id: classId },
-      include: {
-        course: true
-      }
-    });
-
-    if (!classGroup) {
-      return res.status(404).json({ error: 'Class not found' });
-    }
-
-    if (classGroup.instructorId !== req.user.id && req.user.role !== 'Admin') {
-      return res.status(403).json({ error: 'Not authorized to view this gradebook' });
-    }
-
-    // Get all enrollments with grades
-    const enrollments = await prisma.enrollment.findMany({
-      where: { classGroupId: classId },
-      include: {
-        student: {
-          select: { id: true, firstName: true, lastName: true, email: true }
-        },
-        grades: {
-          include: {
-            lesson: true,
-            quiz: true,
-            project: true
-          },
-          orderBy: { createdAt: 'desc' }
-        }
-      }
-    });
-
-    // Calculate detailed gradebook
-    const gradebook = enrollments.map(enrollment => {
-      const gradesByCategory = {
-        Projects: { earned: 0, possible: 0, items: [] },
-        Quiz: { earned: 0, possible: 0, items: [] },
-        Participation: { earned: 0, possible: 0, items: [] },
-        RealWorld: { earned: 0, possible: 0, items: [] }
-      };
-
-      enrollment.grades.forEach(grade => {
-        if (gradesByCategory[grade.category]) {
-          gradesByCategory[grade.category].earned += grade.earnedPoints;
-          gradesByCategory[grade.category].possible += grade.possiblePoints;
-          gradesByCategory[grade.category].items.push({
-            title: grade.lesson?.title || grade.quiz?.title || grade.project?.title,
-            earnedPoints: grade.earnedPoints,
-            possiblePoints: grade.possiblePoints,
-            percentage: grade.possiblePoints > 0 ? (grade.earnedPoints / grade.possiblePoints) * 100 : 0,
-            date: grade.createdAt
-          });
-        }
-      });
-
-      const weights = classGroup.gradingWeights || {
-        projects: 40,
-        quizzes: 30,
-        participation: 20,
-        realWorld: 10
-      };
-
-      let weightedGrade = 0;
-      let totalWeight = 0;
-
-      const categoryMapping = {
-        Projects: weights.projects,
-        Quiz: weights.quizzes,
-        Participation: weights.participation,
-        RealWorld: weights.realWorld
-      };
-
-      const categoryScores = {};
-      Object.entries(gradesByCategory).forEach(([category, scores]) => {
-        const percentage = scores.possible > 0 ? (scores.earned / scores.possible) * 100 : 0;
-        const weight = categoryMapping[category];
-
-        categoryScores[category] = {
-          percentage: percentage.toFixed(2),
-          earned: scores.earned,
-          possible: scores.possible,
-          weight: weight
-        };
-
-        if (scores.possible > 0) {
-          weightedGrade += (percentage * weight) / 100;
-          totalWeight += weight;
-        }
-      });
-
-      const finalGrade = totalWeight > 0 ? (weightedGrade / totalWeight) * 100 : 0;
-
-      return {
-        studentId: enrollment.student.id,
-        studentName: `${enrollment.student.firstName} ${enrollment.student.lastName}`,
-        studentEmail: enrollment.student.email,
-        enrollmentStatus: enrollment.status,
-        categoryScores,
-        finalGrade: finalGrade.toFixed(2),
-        letterGrade: calculateLetterGrade(finalGrade),
-        gradeDetails: gradesByCategory
-      };
-    });
-
-    res.json({
-      classId: classGroup.id,
-      className: classGroup.name,
-      courseName: classGroup.course.name,
-      gradingWeights: classGroup.gradingWeights,
-      studentCount: enrollments.length,
-      gradebook
-    });
-  } catch (error) {
-    console.error('Error fetching gradebook:', error);
-    res.status(500).json({ error: 'Failed to fetch gradebook' });
   }
 });
 
